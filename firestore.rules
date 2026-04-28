@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email is string;
+    }
+
+    function validAllowedEmails() {
+      return request.resource.data.allowedEmails is list
+        && request.resource.data.allowedEmails.size() <= 2
+        && request.auth.token.email in request.resource.data.allowedEmails;
+    }
+
+    function isAllowed() {
+      return signedIn()
+        && resource.data.allowedEmails is list
+        && request.auth.token.email in resource.data.allowedEmails;
+    }
+
+    match /couples/casal-juntos {
+      allow create: if signedIn() && validAllowedEmails();
+      allow read, delete: if isAllowed();
+      allow update: if isAllowed()
+        && request.resource.data.allowedEmails == resource.data.allowedEmails;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

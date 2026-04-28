@@ -16,12 +16,6 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
-import {
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytes,
-} from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBYLmBIfERBRhZXMZ5v3RtWCTw97Bk4GLA',
@@ -36,7 +30,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const firestore = getFirestore(app);
-const storage = getStorage(app);
 const coupleDoc = doc(firestore, 'couples', 'casal-juntos');
 
 setPersistence(auth, browserLocalPersistence);
@@ -66,16 +59,51 @@ export async function getSharedState() {
 }
 
 export async function saveSharedState(state) {
+  const allowedEmails = state.users
+    .map((user) => (user.email || user.id || '').trim().toLowerCase())
+    .filter(Boolean);
+
   await setDoc(coupleDoc, {
+    allowedEmails,
     state,
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function uploadMemoryPhoto(file, userId) {
-  const extension = file.name.split('.').pop() || 'jpg';
-  const path = `memories/${userId}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
-  return getDownloadURL(storageRef);
+export async function uploadMemoryPhoto(file) {
+  if (!auth.currentUser) throw new Error('not-authenticated');
+  return compressImageToDataUrl(file);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function compressImageToDataUrl(file) {
+  const original = await readFileAsDataUrl(file);
+  const image = await loadImage(original);
+  const maxSide = 900;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.72);
 }

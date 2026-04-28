@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email is string;
+    }
+
+    function isAllowedCoupleMember() {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/couples/casal-juntos).data.allowedEmails is list
+        && request.auth.token.email in firestore.get(/databases/(default)/documents/couples/casal-juntos).data.allowedEmails;
+    }
+
+    match /memories/{userId}/{fileName} {
+      allow read, write: if isAllowedCoupleMember();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

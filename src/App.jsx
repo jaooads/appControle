@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { blankState, loadState, normalizeState, replaceState, saveState } from './db.js';
+import { blankState, normalizeState, replaceState } from './db.js';
 import {
   loginWithEmail,
   logout,
@@ -120,7 +120,7 @@ function App() {
       setReady(true);
       setCloudReady(true);
     }, (error) => {
-      setCloudError(error.message);
+      setCloudError('blocked');
       setReady(true);
       setCloudReady(false);
     });
@@ -150,9 +150,9 @@ function App() {
   if (!authReady) return <div className="loading">Carregando login...</div>;
   if (!authUser) return <AuthScreen />;
   if (!ready) return <div className="loading">Sincronizando o cantinho de voces...</div>;
-  if (cloudError) return <CloudError message={cloudError} />;
+  if (cloudError) return <CloudError />;
   if (!state.couple) return <Onboarding authUser={authUser} onCreate={(next) => setState(next)} />;
-  if (!currentUser) return <NoAccess authUser={authUser} users={state.users} />;
+  if (!currentUser) return <NoAccess />;
 
   return (
     <div className="app-shell" style={currentTheme}>
@@ -265,26 +265,26 @@ function Onboarding({ authUser, onCreate }) {
   );
 }
 
-function CloudError({ message }) {
+function CloudError() {
   return (
     <div className="welcome compact">
       <section className="welcome-card">
         <p className="eyebrow">Firebase</p>
         <h1>Algo bloqueou a sincronizacao.</h1>
-        <p className="error-text">{message}</p>
+        <p className="error-text">Nao foi possivel carregar os dados compartilhados com este login.</p>
         <button className="primary" onClick={logout}>Sair</button>
       </section>
     </div>
   );
 }
 
-function NoAccess({ authUser, users }) {
+function NoAccess() {
   return (
     <div className="welcome compact">
       <section className="welcome-card">
         <p className="eyebrow">Acesso</p>
-        <h1>Esse email ainda nao esta no casal.</h1>
-        <p className="muted">Voce entrou como {authUser.email}. Os emails cadastrados sao: {users.map((user) => user.email || user.id).join(', ')}.</p>
+        <h1>Esse login nao tem acesso ao casal.</h1>
+        <p className="muted">Entre com uma conta autorizada para acessar os dados compartilhados.</p>
         <button className="primary" onClick={logout}>Entrar com outro email</button>
       </section>
     </div>
@@ -355,6 +355,7 @@ function Dashboard({ state, currentUser, setActiveTab }) {
 function Memories({ state, update, currentUser }) {
   const [form, setForm] = useState({ title: '', date: today(), description: '', photo: '' });
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const memories = [...state.memories].sort((a, b) => b.date.localeCompare(a.date));
 
   async function submit(event) {
@@ -366,9 +367,12 @@ function Memories({ state, update, currentUser }) {
   async function setPhoto(file) {
     if (!file) return;
     setUploading(true);
+    setUploadError('');
     try {
-      const photo = await uploadMemoryPhoto(file, currentUser.id);
+      const photo = await uploadMemoryPhoto(file);
       setForm((current) => ({ ...current, photo }));
+    } catch {
+      setUploadError('Nao foi possivel carregar a foto. Tente uma imagem menor ou em outro formato.');
     } finally {
       setUploading(false);
     }
@@ -383,7 +387,8 @@ function Memories({ state, update, currentUser }) {
           <label>Titulo<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
           <label>Data<input type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
           <label>Foto<input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files[0])} /></label>
-          {uploading && <p className="muted">Enviando foto...</p>}
+          {uploading && <p className="muted">Preparando foto...</p>}
+          {uploadError && <p className="error-text">{uploadError}</p>}
           {form.photo && <img className="preview" src={form.photo} alt="Previa" />}
           <label>Descricao<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
           <button className="primary" disabled={uploading}>Salvar memoria</button>
@@ -720,11 +725,11 @@ function themeForUser(state, id) {
 
 function firebaseErrorMessage(error) {
   const code = error?.code || '';
-  if (code.includes('auth/invalid-credential')) return 'Email ou senha incorretos.';
-  if (code.includes('auth/email-already-in-use')) return 'Esse email ja tem uma conta. Tente entrar.';
+  if (code.includes('auth/invalid-credential')) return 'Nao foi possivel entrar com essas credenciais.';
+  if (code.includes('auth/email-already-in-use')) return 'Nao foi possivel criar a conta com esses dados.';
   if (code.includes('auth/weak-password')) return 'Use uma senha com pelo menos 6 caracteres.';
-  if (code.includes('auth/operation-not-allowed')) return 'Ative Email/Senha no Authentication do Firebase.';
-  return error?.message || 'Nao foi possivel concluir. Tente novamente.';
+  if (code.includes('auth/operation-not-allowed')) return 'Login por email e senha ainda nao esta habilitado.';
+  return 'Nao foi possivel concluir. Tente novamente.';
 }
 
 function Header({ title, subtitle }) {
