@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { blankState, loadState, replaceState, saveState } from './db.js';
+import { blankState, loadState, normalizeState, replaceState, saveState } from './db.js';
+import {
+  loginWithEmail,
+  logout,
+  registerWithEmail,
+  saveSharedState,
+  uploadMemoryPhoto,
+  watchAuth,
+  watchSharedState,
+} from './firebase.js';
 
 const sessionKey = 'casal-current-user';
 const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -83,23 +92,49 @@ function fileToDataUrl(file) {
 function App() {
   const [state, setState] = useState(blankState);
   const [ready, setReady] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudError, setCloudError] = useState('');
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [currentUserId, setCurrentUserId] = useState(localStorage.getItem(sessionKey) || '');
+  const remoteUpdateRef = useRef(false);
+  const currentUserId = authUser?.email?.toLowerCase() || localStorage.getItem(sessionKey) || '';
 
   useEffect(() => {
-    loadState().then((loaded) => {
-      setState(loaded);
-      setReady(true);
-      if (!currentUserId && loaded.users[0]) {
-        setCurrentUserId(loaded.users[0].id);
-        localStorage.setItem(sessionKey, loaded.users[0].id);
-      }
+    const unsubscribe = watchAuth((user) => {
+      setAuthUser(user);
+      setAuthReady(true);
     });
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
-    if (ready) saveState(state);
-  }, [ready, state]);
+    if (!authReady || !authUser) return undefined;
+    setReady(false);
+    setCloudReady(false);
+    setCloudError('');
+    const unsubscribe = watchSharedState((snapshot) => {
+      remoteUpdateRef.current = true;
+      const cloudState = snapshot.exists() ? snapshot.data().state : null;
+      setState(normalizeState(cloudState));
+      setReady(true);
+      setCloudReady(true);
+    }, (error) => {
+      setCloudError(error.message);
+      setReady(true);
+      setCloudReady(false);
+    });
+    return unsubscribe;
+  }, [authReady, authUser]);
+
+  useEffect(() => {
+    if (!ready || !cloudReady || !authUser) return;
+    if (remoteUpdateRef.current) {
+      remoteUpdateRef.current = false;
+      return;
+    }
+    saveSharedState(state);
+  }, [ready, cloudReady, authUser, state]);
 
   const currentUser = state.users.find((user) => user.id === currentUserId);
   const currentTheme = themeForUser(state, currentUserId);
@@ -112,14 +147,12 @@ function App() {
     });
   }
 
-  function chooseUser(id) {
-    setCurrentUserId(id);
-    localStorage.setItem(sessionKey, id);
-  }
-
-  if (!ready) return <div className="loading">Carregando o cantinho de voces...</div>;
-  if (!state.couple) return <Onboarding onCreate={(next) => setState(next)} />;
-  if (!currentUser) return <UserPicker users={state.users} onChoose={chooseUser} />;
+  if (!authReady) return <div className="loading">Carregando login...</div>;
+  if (!authUser) return <AuthScreen />;
+  if (!ready) return <div className="loading">Sincronizando o cantinho de voces...</div>;
+  if (cloudError) return <CloudError message={cloudError} />;
+  if (!state.couple) return <Onboarding authUser={authUser} onCreate={(next) => setState(next)} />;
+  if (!currentUser) return <NoAccess authUser={authUser} users={state.users} />;
 
   return (
     <div className="app-shell" style={currentTheme}>
@@ -139,7 +172,7 @@ function App() {
         <div className="profile-switch">
           <span>Entrou como</span>
           <strong>{currentUser.name}</strong>
-          <button className="ghost" onClick={() => setCurrentUserId('')}>Trocar usuario</button>
+          <button className="ghost" onClick={logout}>Sair</button>
         </div>
       </aside>
 
@@ -156,15 +189,57 @@ function App() {
   );
 }
 
-function Onboarding({ onCreate }) {
-  const [form, setForm] = useState({ a: '', b: '', startDate: today(), coupleName: '' });
+function AuthScreen() {
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      if (mode === 'login') {
+        await loginWithEmail(form.email, form.password);
+      } else {
+        await registerWithEmail(form.email, form.password);
+      }
+    } catch (err) {
+      setError(firebaseErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="welcome">
+      <form className="welcome-card auth-card" onSubmit={submit}>
+        <p className="eyebrow">Login do casal</p>
+        <h1>{mode === 'login' ? 'Entrar no app compartilhado.' : 'Criar acesso.'}</h1>
+        <p className="muted">Use email e senha. Voces dois precisam ter conta para compartilhar os mesmos dados.</p>
+        <label>Email<input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+        <label>Senha<input type="password" minLength="6" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+        {error && <p className="error-text">{error}</p>}
+        <button className="primary" disabled={loading}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}</button>
+        <button type="button" className="ghost" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+          {mode === 'login' ? 'Criar uma conta' : 'Ja tenho conta'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function Onboarding({ authUser, onCreate }) {
+  const currentEmail = authUser.email?.toLowerCase() || '';
+  const [form, setForm] = useState({ a: '', b: '', emailA: currentEmail, emailB: '', startDate: today(), coupleName: '' });
 
   function submit(event) {
     event.preventDefault();
-    const userA = { id: uid(), name: form.a.trim() || 'Pessoa 1', theme: 'blue' };
-    const userB = { id: uid(), name: form.b.trim() || 'Pessoa 2', theme: 'pink' };
+    const userA = { id: form.emailA.trim().toLowerCase(), name: form.a.trim() || 'Pessoa 1', email: form.emailA.trim().toLowerCase(), theme: 'blue' };
+    const userB = { id: form.emailB.trim().toLowerCase(), name: form.b.trim() || 'Pessoa 2', email: form.emailB.trim().toLowerCase(), theme: 'pink' };
     const name = form.coupleName.trim() || `${userA.name} e ${userB.name}`;
-    localStorage.setItem(sessionKey, userA.id);
+    localStorage.setItem(sessionKey, currentEmail);
     onCreate({
       ...blankState,
       couple: { id: uid(), name, startDate: form.startDate },
@@ -177,13 +252,41 @@ function Onboarding({ onCreate }) {
       <form className="welcome-card" onSubmit={submit}>
         <p className="eyebrow">Primeiro passo</p>
         <h1>Organizem a vida a dois em um so lugar.</h1>
-        <p className="muted">Tudo fica salvo neste navegador. Depois voces podem migrar para Firebase quando quiserem sincronizar dispositivos.</p>
+        <p className="muted">Esse cadastro cria o espaco compartilhado. Use os emails que cada um vai usar no login.</p>
         <label>Nome da primeira pessoa<input required value={form.a} onChange={(e) => setForm({ ...form, a: e.target.value })} /></label>
+        <label>Email da primeira pessoa<input type="email" required value={form.emailA} onChange={(e) => setForm({ ...form, emailA: e.target.value })} /></label>
         <label>Nome da segunda pessoa<input required value={form.b} onChange={(e) => setForm({ ...form, b: e.target.value })} /></label>
+        <label>Email da segunda pessoa<input type="email" required value={form.emailB} onChange={(e) => setForm({ ...form, emailB: e.target.value })} /></label>
         <label>Nome do casal<input value={form.coupleName} onChange={(e) => setForm({ ...form, coupleName: e.target.value })} placeholder="Ex: Ana e Leo" /></label>
         <label>Data de inicio<input type="date" required value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
         <button className="primary">Criar nosso app</button>
       </form>
+    </div>
+  );
+}
+
+function CloudError({ message }) {
+  return (
+    <div className="welcome compact">
+      <section className="welcome-card">
+        <p className="eyebrow">Firebase</p>
+        <h1>Algo bloqueou a sincronizacao.</h1>
+        <p className="error-text">{message}</p>
+        <button className="primary" onClick={logout}>Sair</button>
+      </section>
+    </div>
+  );
+}
+
+function NoAccess({ authUser, users }) {
+  return (
+    <div className="welcome compact">
+      <section className="welcome-card">
+        <p className="eyebrow">Acesso</p>
+        <h1>Esse email ainda nao esta no casal.</h1>
+        <p className="muted">Voce entrou como {authUser.email}. Os emails cadastrados sao: {users.map((user) => user.email || user.id).join(', ')}.</p>
+        <button className="primary" onClick={logout}>Entrar com outro email</button>
+      </section>
     </div>
   );
 }
@@ -251,6 +354,7 @@ function Dashboard({ state, currentUser, setActiveTab }) {
 
 function Memories({ state, update, currentUser }) {
   const [form, setForm] = useState({ title: '', date: today(), description: '', photo: '' });
+  const [uploading, setUploading] = useState(false);
   const memories = [...state.memories].sort((a, b) => b.date.localeCompare(a.date));
 
   async function submit(event) {
@@ -261,7 +365,13 @@ function Memories({ state, update, currentUser }) {
 
   async function setPhoto(file) {
     if (!file) return;
-    setForm({ ...form, photo: await fileToDataUrl(file) });
+    setUploading(true);
+    try {
+      const photo = await uploadMemoryPhoto(file, currentUser.id);
+      setForm((current) => ({ ...current, photo }));
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -273,9 +383,10 @@ function Memories({ state, update, currentUser }) {
           <label>Titulo<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
           <label>Data<input type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
           <label>Foto<input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files[0])} /></label>
+          {uploading && <p className="muted">Enviando foto...</p>}
           {form.photo && <img className="preview" src={form.photo} alt="Previa" />}
           <label>Descricao<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-          <button className="primary">Salvar memoria</button>
+          <button className="primary" disabled={uploading}>Salvar memoria</button>
         </form>
         <div className="timeline">
           {memories.map((memory) => (
@@ -605,6 +716,15 @@ function themeForUser(state, id) {
   const index = state.users.findIndex((user) => user.id === id);
   const theme = state.users[index]?.theme || (index === 0 ? 'blue' : 'pink');
   return themePalettes[theme] || themePalettes.pink;
+}
+
+function firebaseErrorMessage(error) {
+  const code = error?.code || '';
+  if (code.includes('auth/invalid-credential')) return 'Email ou senha incorretos.';
+  if (code.includes('auth/email-already-in-use')) return 'Esse email ja tem uma conta. Tente entrar.';
+  if (code.includes('auth/weak-password')) return 'Use uma senha com pelo menos 6 caracteres.';
+  if (code.includes('auth/operation-not-allowed')) return 'Ative Email/Senha no Authentication do Firebase.';
+  return error?.message || 'Nao foi possivel concluir. Tente novamente.';
 }
 
 function Header({ title, subtitle }) {

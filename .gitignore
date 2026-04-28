@@ -4,6 +4,7 @@ dist/
 .cache/
 .chrome-debug/
 .chrome-debug-9333/
+.chrome-test-*/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

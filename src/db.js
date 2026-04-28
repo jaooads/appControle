@@ -99,3 +99,4 @@ export async function replaceState(state) {
 }
 
 export { blankState };
+export { normalizeState };

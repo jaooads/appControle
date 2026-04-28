@@ -73,6 +73,12 @@ button.danger {
   padding: 0.48rem 0.65rem;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
 input,
 textarea,
 select {
@@ -550,6 +556,19 @@ small {
 
 .backup-panel {
   max-width: 680px;
+}
+
+.auth-card {
+  max-width: 520px;
+}
+
+.error-text {
+  margin-bottom: 0;
+  padding: 0.85rem;
+  border: 1px solid #f3b3aa;
+  border-radius: 8px;
+  color: #9f2e25;
+  background: #fff0ed;
 }
 
 @media (max-width: 920px) {
