@@ -356,6 +356,7 @@ function Memories({ state, update, currentUser }) {
   const [form, setForm] = useState({ title: '', date: today(), description: '', photo: '' });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [openPhoto, setOpenPhoto] = useState(null);
   const memories = [...state.memories].sort((a, b) => b.date.localeCompare(a.date));
 
   async function submit(event) {
@@ -396,7 +397,11 @@ function Memories({ state, update, currentUser }) {
         <div className="timeline">
           {memories.map((memory) => (
             <article className="memory-card" key={memory.id}>
-              {memory.photo && <img src={memory.photo} alt={memory.title} />}
+              {memory.photo && (
+                <button className="photo-button" type="button" onClick={() => setOpenPhoto(memory)}>
+                  <img src={memory.photo} alt={memory.title} />
+                </button>
+              )}
               <div>
                 <p className="eyebrow">{formatDate(memory.date)} · {anniversaryText(memory.date)}</p>
                 <h3>{memory.title}</h3>
@@ -408,6 +413,15 @@ function Memories({ state, update, currentUser }) {
           {!memories.length && <Empty text="A linha do tempo esta pronta para receber a primeira foto." />}
         </div>
       </div>
+      {openPhoto && (
+        <div className="photo-modal" role="dialog" aria-modal="true" onClick={() => setOpenPhoto(null)}>
+          <div className="photo-modal-content" onClick={(event) => event.stopPropagation()}>
+            <button className="photo-modal-close" type="button" aria-label="Fechar foto" onClick={() => setOpenPhoto(null)}>Fechar</button>
+            <img src={openPhoto.photo} alt={openPhoto.title} />
+            <strong>{openPhoto.title}</strong>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

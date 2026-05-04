@@ -96,14 +96,25 @@ function loadImage(src) {
 async function compressImageToDataUrl(file) {
   const original = await readFileAsDataUrl(file);
   const image = await loadImage(original);
-  const maxSide = 900;
-  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-  const width = Math.max(1, Math.round(image.width * scale));
-  const height = Math.max(1, Math.round(image.height * scale));
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
-  canvas.width = width;
-  canvas.height = height;
-  context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', 0.72);
+  const attempts = [
+    [520, 0.62],
+    [420, 0.56],
+    [340, 0.5],
+    [280, 0.46],
+  ];
+
+  for (const [maxSide, quality] of attempts) {
+    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    if (dataUrl.length < 180000) return dataUrl;
+  }
+
+  return canvas.toDataURL('image/jpeg', 0.42);
 }

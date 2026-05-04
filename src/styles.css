@@ -415,11 +415,57 @@ small {
   border-radius: 8px;
 }
 
+.photo-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.photo-button:hover {
+  transform: none;
+}
+
 .memory-card {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 1rem;
   padding: 0.85rem;
+}
+
+.photo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(20, 18, 20, 0.72);
+}
+
+.photo-modal-content {
+  display: grid;
+  gap: 0.75rem;
+  max-width: min(980px, 96vw);
+  max-height: 92vh;
+  color: #fff;
+}
+
+.photo-modal-content img {
+  max-width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #111;
+}
+
+.photo-modal-close {
+  justify-self: end;
+  background: #fff;
+  color: #2d2228;
 }
 
 .segment {
